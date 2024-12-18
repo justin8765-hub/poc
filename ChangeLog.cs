@@ -1,32 +1,38 @@
-CREATE PROCEDURE dbo.GenerateAuditQuery
+CREATE PROCEDURE dbo.GetUserFieldChangesAsJson
+    @UserId INT,
+    @AuditDate DATETIME
 AS
 BEGIN
     SET NOCOUNT ON;
 
-    DECLARE @columns NVARCHAR(MAX);
-    DECLARE @sql NVARCHAR(MAX);
-
-    -- Dynamically retrieve columns from the Test table
-    SELECT @columns = STRING_AGG(QUOTENAME(COLUMN_NAME), ',')
-    FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_NAME = 'Test' AND TABLE_SCHEMA = 'dbo';
-
-    -- Build the dynamic SQL query
-    SET @sql = N'SELECT Id, Action, AuditId, ' +
-               STUFF((
-                   SELECT ', ' + QUOTENAME(col.value) + N' AS UpdatedValue_' + QUOTENAME(col.value) + ',
-                                 CASE 
-                                     WHEN Action = ''DELETE'' THEN NULL 
-                                     ELSE LAG(' + QUOTENAME(col.value) + N') OVER (PARTITION BY Id ORDER BY AuditId ASC) 
-                                 END AS Value_' + QUOTENAME(col.value)
-                   FROM STRING_SPLIT(@columns, ',') AS col
-                   FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') +
-               N' FROM dbo.Audit';
-
-    -- Print the generated SQL for debugging (optional, can be removed in production)
-    PRINT @sql;
-
-    -- Execute the dynamically generated SQL
-    EXEC sp_executesql @sql;
+    -- Fetch only the changes for the specific UserId and AuditDate
+    SELECT 
+        ua.AuditId,
+        ua.AuditDate,
+        ua.Operation,
+        JSON_QUERY(
+            CASE
+                WHEN ua.Operation = 'UPDATE' THEN 
+                    JSON_OBJECT(
+                        'UserName', 
+                        CASE WHEN ua.OldUserName <> ua.UserName THEN JSON_OBJECT('Old', ua.OldUserName, 'New', ua.UserName) ELSE NULL END,
+                        'Email', 
+                        CASE WHEN ua.OldEmail <> ua.Email THEN JSON_OBJECT('Old', ua.OldEmail, 'New', ua.Email) ELSE NULL END,
+                        'ModifiedDate', 
+                        CASE WHEN ua.OldModifiedDate <> ua.ModifiedDate THEN JSON_OBJECT('Old', CONVERT(VARCHAR, ua.OldModifiedDate, 120), 'New', CONVERT(VARCHAR, ua.ModifiedDate, 120)) ELSE NULL END
+                    )
+                WHEN ua.Operation = 'INSERT' THEN 
+                    JSON_OBJECT('InsertedValues', JSON_OBJECT('UserName', ua.UserName, 'Email', ua.Email))
+                WHEN ua.Operation = 'DELETE' THEN 
+                    JSON_OBJECT('DeletedValues', JSON_OBJECT('UserName', ua.UserName, 'Email', ua.Email))
+            END
+        ) AS ChangeDetails
+    FROM 
+        dbo.UserAudit ua
+    WHERE 
+        ua.UserId = @UserId
+        AND CAST(ua.AuditDate AS DATE) = CAST(@AuditDate AS DATE)
+    ORDER BY 
+        ua.AuditDate DESC
+    FOR JSON PATH;
 END;
-GO
