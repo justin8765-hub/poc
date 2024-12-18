@@ -5,43 +5,54 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Temporary tables to store previous and current states
-    DECLARE @PreviousState TABLE (ColumnName NVARCHAR(MAX), Value NVARCHAR(MAX));
-    DECLARE @CurrentState TABLE (ColumnName NVARCHAR(MAX), Value NVARCHAR(MAX));
+    DECLARE @Columns NVARCHAR(MAX);       -- To store column names
+    DECLARE @PrevStateSQL NVARCHAR(MAX); -- To fetch the previous state dynamically
+    DECLARE @CurrStateSQL NVARCHAR(MAX); -- To fetch the current state dynamically
+    DECLARE @JSON NVARCHAR(MAX);         -- To store the resulting JSON
 
-    -- Extract previous state
-    INSERT INTO @PreviousState (ColumnName, Value)
-    SELECT COLUMN_NAME, CAST(COLUMN_VALUE AS NVARCHAR(MAX))
-    FROM INFORMATION_SCHEMA.COLUMNS AS cols
-    CROSS APPLY (
-        SELECT cols.COLUMN_NAME, COLUMN_VALUE = CAST(audit.[cols.COLUMN_NAME] AS NVARCHAR(MAX))
-        FROM TableAudit audit
-        WHERE audit.TableID = @TableID AND audit.ChangeDate = (
+    -- Step 1: Get all column names from the TableAudit (except TableID and ChangeDate)
+    SELECT @Columns = STRING_AGG(COLUMN_NAME, ', ')
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'TableAudit' AND COLUMN_NAME NOT IN ('TableID', 'ChangeDate');
+
+    -- Step 2: Create SQL for fetching the previous state
+    SET @PrevStateSQL = '
+        SELECT ' + @Columns + '
+        FROM TableAudit
+        WHERE TableID = @TableID AND ChangeDate = (
             SELECT MAX(ChangeDate)
             FROM TableAudit
             WHERE TableID = @TableID AND ChangeDate < @ChangeDate
         )
-    ) AS data;
+    ';
 
-    -- Extract current state
-    INSERT INTO @CurrentState (ColumnName, Value)
-    SELECT COLUMN_NAME, CAST(COLUMN_VALUE AS NVARCHAR(MAX))
-    FROM INFORMATION_SCHEMA.COLUMNS AS cols
-    CROSS APPLY (
-        SELECT cols.COLUMN_NAME, COLUMN_VALUE = CAST(audit.[cols.COLUMN_NAME] AS NVARCHAR(MAX))
-        FROM TableAudit audit
-        WHERE audit.TableID = @TableID AND audit.ChangeDate = @ChangeDate
-    ) AS data;
+    -- Step 3: Create SQL for fetching the current state
+    SET @CurrStateSQL = '
+        SELECT ' + @Columns + '
+        FROM TableAudit
+        WHERE TableID = @TableID AND ChangeDate = @ChangeDate
+    ';
 
-    -- Generate JSON of changes
-    SELECT (
-        '{ "TableId": ' + CAST(@TableID AS VARCHAR) + ', "ChangeDate": "' + CONVERT(VARCHAR, @ChangeDate, 120) + '", "ChangeDetails": {' +
-        STRING_AGG(
-            '\"' + ColumnName + '\": {\"Current\": \"' + ISNULL(Current.Value, 'NULL') + '\", \"Previous\": \"' + ISNULL(Previous.Value, 'NULL') + '\"}', ', ') +
-        '} }'
-    ) AS JSON_Result
-    FROM @PreviousState Previous
-    FULL OUTER JOIN @CurrentState Current
-        ON Previous.ColumnName = Current.ColumnName
-    WHERE ISNULL(Previous.Value, 'NULL') <> ISNULL(Current.Value, 'NULL');
+    -- Step 4: Compare the two states dynamically and generate JSON
+    SET @JSON = '
+        WITH PreviousState AS (
+            ' + @PrevStateSQL + '
+        ),
+        CurrentState AS (
+            ' + @CurrStateSQL + '
+        )
+        SELECT
+            ''{ "TableId": '' + CAST(@TableID AS NVARCHAR) + '', "ChangeDate": "' + CONVERT(VARCHAR, @ChangeDate, 120) + '", "ChangeDetails": {' +
+            STRING_AGG(
+                ''"'' + COLUMN_NAME + '': {"Current": '' + ISNULL(CAST(cs.COLUMN_VALUE AS NVARCHAR), ''NULL'') + '', "Previous": '' + ISNULL(CAST(ps.COLUMN_VALUE AS NVARCHAR), ''NULL'') + ''}'', '', '') +
+            ''} }''
+        AS JSON_Result
+        FROM INFORMATION_SCHEMA.COLUMNS col
+        LEFT JOIN PreviousState ps ON ps.COLUMN_NAME = col.COLUMN_NAME
+        LEFT JOIN CurrentState cs ON cs.COLUMN_NAME = col.COLUMN_NAME
+        WHERE ISNULL(ps.VALUE, '') <> ISNULL(cs.VALUE);
+    ';
+
+    -- Step 5: Execute the dynamic SQL and return the JSON
+    EXEC sp_executesql @JSON, N'@TableID INT, @ChangeDate DATETIME', @TableID, @ChangeDate;
 END;
