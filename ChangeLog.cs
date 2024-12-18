@@ -5,32 +5,43 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Generate JSON of changes dynamically
+    -- Temporary tables to store previous and current states
+    DECLARE @PreviousState TABLE (ColumnName NVARCHAR(MAX), Value NVARCHAR(MAX));
+    DECLARE @CurrentState TABLE (ColumnName NVARCHAR(MAX), Value NVARCHAR(MAX));
+
+    -- Extract previous state
+    INSERT INTO @PreviousState (ColumnName, Value)
+    SELECT COLUMN_NAME, CAST(COLUMN_VALUE AS NVARCHAR(MAX))
+    FROM INFORMATION_SCHEMA.COLUMNS AS cols
+    CROSS APPLY (
+        SELECT cols.COLUMN_NAME, COLUMN_VALUE = CAST(audit.[cols.COLUMN_NAME] AS NVARCHAR(MAX))
+        FROM TableAudit audit
+        WHERE audit.TableID = @TableID AND audit.ChangeDate = (
+            SELECT MAX(ChangeDate)
+            FROM TableAudit
+            WHERE TableID = @TableID AND ChangeDate < @ChangeDate
+        )
+    ) AS data;
+
+    -- Extract current state
+    INSERT INTO @CurrentState (ColumnName, Value)
+    SELECT COLUMN_NAME, CAST(COLUMN_VALUE AS NVARCHAR(MAX))
+    FROM INFORMATION_SCHEMA.COLUMNS AS cols
+    CROSS APPLY (
+        SELECT cols.COLUMN_NAME, COLUMN_VALUE = CAST(audit.[cols.COLUMN_NAME] AS NVARCHAR(MAX))
+        FROM TableAudit audit
+        WHERE audit.TableID = @TableID AND audit.ChangeDate = @ChangeDate
+    ) AS data;
+
+    -- Generate JSON of changes
     SELECT (
-        '{ "TableId": ' + CAST(@TableID AS VARCHAR) + ', "ChangeDetails": {' +
+        '{ "TableId": ' + CAST(@TableID AS VARCHAR) + ', "ChangeDate": "' + CONVERT(VARCHAR, @ChangeDate, 120) + '", "ChangeDetails": {' +
         STRING_AGG(
-            '\"' + col.COLUMN_NAME + '\": {\"Current\": \"' + ISNULL(CAST(cs.VALUE AS NVARCHAR), 'NULL') + '\", \"Previous\": \"' + ISNULL(CAST(ps.VALUE AS NVARCHAR), 'NULL') + '\"}', ', ') +
+            '\"' + ColumnName + '\": {\"Current\": \"' + ISNULL(Current.Value, 'NULL') + '\", \"Previous\": \"' + ISNULL(Previous.Value, 'NULL') + '\"}', ', ') +
         '} }'
     ) AS JSON_Result
-    FROM (
-        -- Get the previous state
-        SELECT * 
-        FROM TableAudit 
-        WHERE TableID = @TableID AND ChangeDate < @ChangeDate
-        ORDER BY ChangeDate DESC
-        OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY
-    ) ps
-    FULL OUTER JOIN (
-        -- Get the current state
-        SELECT * 
-        FROM TableAudit 
-        WHERE TableID = @TableID AND ChangeDate = @ChangeDate
-    ) cs
-    ON 1=1 -- Compare all columns dynamically
-    CROSS APPLY (
-        SELECT COLUMN_NAME, ps.VALUE AS PreviousValue, cs.VALUE AS CurrentValue
-        FROM INFORMATION_SCHEMA.COLUMNS col
-        WHERE col.TABLE_NAME = 'TableAudit'
-    ) col
-    WHERE ISNULL(ps.VALUE, 'NULL') <> ISNULL(cs.VALUE, 'NULL');
-END
+    FROM @PreviousState Previous
+    FULL OUTER JOIN @CurrentState Current
+        ON Previous.ColumnName = Current.ColumnName
+    WHERE ISNULL(Previous.Value, 'NULL') <> ISNULL(Current.Value, 'NULL');
+END;
