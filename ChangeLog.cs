@@ -4,34 +4,37 @@
 @using Syncfusion.Blazor.Buttons
 @using Syncfusion.Blazor.Lists
 @using Syncfusion.Blazor.Navigations
+@inject NavigationManager Navigation
 
-<h3>Toggleable Notification Panel</h3>
+<h3 class="mb-3">Toggleable Notification Panel</h3>
 
-<SfButton CssClass="e-primary" @onclick="TogglePanel">Show Notifications</SfButton>
+<SfButton CssClass="e-primary mb-3" @onclick="ToggleSidebar">Show Notifications</SfButton>
 
-<SfSidebar Target=".content" MediaQuery="(min-width: 600px)" Width="400px" IsOpen="@ShowPanel" DockSize="0" EnableDock="false" Position="SidebarPosition.Right">
-    <div style="padding: 10px;">
-        <h4>Notifications</h4>
+<SfSidebar Target="body" IsOpen="@ShowSidebar" EnableDock="false" DockSize="0" Width="25%" Position="SidebarPosition.Right" Type="SidebarType.Over">
+    <div class="p-3">
+        <h4 class="mb-3">Notifications</h4>
         <SfListView DataSource="@Messages" ShowCheckBox="false">
             <ListViewTemplates>
                 <Template>
-                    <SfMessage Severity="MessageSeverity.Info" CssClass="e-info" ShowIcon="true">
-                        <a href="@((context as MessageItem).Url)" target="_blank">@((context as MessageItem).Text)</a>
+                    <SfMessage Severity="MessageSeverity.Info" CssClass="e-info mb-2" ShowIcon="true">
+                        <a href="#" @onclick="() => NavigateToLink((context as MessageItem).Url)" class="text-decoration-none">@((context as MessageItem).Text)</a>
                     </SfMessage>
                 </Template>
             </ListViewTemplates>
         </SfListView>
         @if (!Messages.Any())
         {
-            <p>No messages to display.</p>
+            <p class="text-muted">No messages to display.</p>
         }
     </div>
 </SfSidebar>
 
-<div class="content" style="margin-top: 20px;">
-    <input type="text" @bind="NewMessageText" placeholder="Enter message text" />
-    <input type="url" @bind="NewMessageUrl" placeholder="Enter message URL" />
-    <SfButton CssClass="e-success" @onclick="AddMessage">Add Message</SfButton>
+<div class="content mt-4">
+    <div class="mb-3">
+        <input type="text" @bind="NewMessageText" placeholder="Enter message text" class="form-control mb-2" />
+        <input type="url" @bind="NewMessageUrl" placeholder="Enter message URL" class="form-control mb-2" />
+        <SfButton CssClass="e-success" @onclick="AddMessage">Add Message</SfButton>
+    </div>
 </div>
 
 @code {
@@ -43,7 +46,7 @@
 
     private string NewMessageText;
     private string NewMessageUrl;
-    private bool ShowPanel = false;
+    private bool ShowSidebar = false;
 
     private void AddMessage()
     {
@@ -55,9 +58,17 @@
         }
     }
 
-    private void TogglePanel()
+    private void ToggleSidebar()
     {
-        ShowPanel = !ShowPanel;
+        ShowSidebar = !ShowSidebar;
+    }
+
+    private void NavigateToLink(string url)
+    {
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            Navigation.NavigateTo(url);
+        }
     }
 
     private class MessageItem
