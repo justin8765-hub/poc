@@ -1,16 +1,13 @@
 SELECT 
-    qs.sql_handle,
-    qs.plan_handle,
-    q.text AS QueryText,
-    qs.execution_count,
-    qs.total_elapsed_time,
-    qs.last_execution_time
-FROM sys.dm_exec_query_stats qs
-CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) q
-WHERE qs.last_execution_time >= DATEADD(MINUTE, -10, GETDATE()) -- last 10 minutes
-AND EXISTS (
-    SELECT 1
-    FROM sys.dm_os_ring_buffers rb
-    WHERE rb.ring_buffer_type = 'RING_BUFFER_EXCEPTION'
-    AND CAST(rb.record_id AS INT) = qs.sql_handle
-);
+    r.session_id,
+    r.status,
+    r.command,
+    t.text AS QueryText,
+    s.login_name,
+    r.start_time,
+    r.error_number
+FROM sys.dm_exec_requests r
+JOIN sys.dm_exec_sessions s ON r.session_id = s.session_id
+CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) t
+WHERE s.login_name = 'YourUserName' -- Replace with the specific user
+AND r.error_number IS NOT NULL; -- Queries that encountered errors
