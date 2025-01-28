@@ -1,39 +1,34 @@
-using System;
-using System.Collections.Generic;
-using System.Reflection;
+@page "/edit-save-toggle"
+@using Syncfusion.Blazor.Inputs
 
-public static class ChangeTracker
-{
-    public static List<ChangeLog> DetectChanges<T>(
-        T? oldEntity,
-        T? newEntity,
-        string tableName,
-        object primaryKeyValue,
-        string changeType)
+<div class="container mt-3">
+    <div class="d-flex justify-content-end align-items-center">
+        <SfSwitch @bind-Checked="isEditMode" ValueChange="OnValueChange">
+            <SwitchOnLabelTemplate>
+                <i class="bi bi-save"></i> Save
+            </SwitchOnLabelTemplate>
+            <SwitchOffLabelTemplate>
+                <i class="bi bi-pencil"></i> Edit
+            </SwitchOffLabelTemplate>
+        </SfSwitch>
+    </div>
+</div>
+
+@code {
+    private bool isEditMode = false;
+
+    private void OnValueChange(Syncfusion.Blazor.Inputs.ChangeEventArgs<bool> args)
     {
-        var changeLogs = new List<ChangeLog>();
-        var properties = typeof(T).GetProperties();
-
-        foreach (var property in properties)
+        if (!args.Value)
         {
-            var oldValue = oldEntity != null ? property.GetValue(oldEntity)?.ToString() : null;
-            var newValue = newEntity != null ? property.GetValue(newEntity)?.ToString() : null;
-
-            if (oldValue != newValue)
-            {
-                changeLogs.Add(new ChangeLog
-                {
-                    TableName = tableName,
-                    PrimaryKey = primaryKeyValue.ToString() ?? "Unknown",
-                    FieldName = property.Name,
-                    OldValue = oldValue,
-                    NewValue = newValue,
-                    ChangeDate = DateTime.UtcNow,
-                    ChangeType = changeType
-                });
-            }
+            // Call Save method when toggling to "Save"
+            SaveChanges();
         }
+    }
 
-        return changeLogs;
+    private void SaveChanges()
+    {
+        // Add your save logic here
+        Console.WriteLine("Changes saved!");
     }
 }
