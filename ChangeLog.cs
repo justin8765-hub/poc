@@ -1,28 +1,48 @@
 using Microsoft.AspNetCore.SignalR;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Security.Claims;
 using System.Linq;
 using System.Threading.Tasks;
 
+public class ConnectedUser
+{
+    public string UserId { get; set; } = string.Empty;
+    public string ConnectionId { get; set; } = string.Empty;
+    public ClaimsIdentity? ClaimsIdentity { get; set; }
+    public HashSet<string> Families { get; set; } = new();
+}
+
 public class NotificationHub : Hub
 {
-    // Tracks which families each user belongs to
-    private static readonly ConcurrentDictionary<string, HashSet<string>> UserFamilies = new();
+    // Store connected users (Thread-safe)
+    private static readonly ConcurrentDictionary<string, ConnectedUser> ConnectedUsers = new();
 
     public override async Task OnConnectedAsync()
     {
-        var userId = Context.UserIdentifier;
-        if (string.IsNullOrEmpty(userId)) return;
+        var userId = GetUserId();
+        var connectionId = Context.ConnectionId;
+        var claimsIdentity = Context.User?.Identity as ClaimsIdentity;
+        var families = await GetUserFamiliesAsync(userId);
 
-        var familyIds = await GetUserFamiliesAsync(userId);
-
-        // Store user-family mapping in memory
-        UserFamilies[userId] = new HashSet<string>(familyIds);
-
-        // Add the user to SignalR groups for each family
-        foreach (var familyId in familyIds)
+        if (!string.IsNullOrEmpty(userId))
         {
-            await Groups.AddToGroupAsync(Context.ConnectionId, familyId);
+            // Store user details
+            var user = new ConnectedUser
+            {
+                UserId = userId,
+                ConnectionId = connectionId,
+                ClaimsIdentity = claimsIdentity,
+                Families = new HashSet<string>(families)
+            };
+
+            ConnectedUsers[userId] = user;
+
+            // Join SignalR groups for families
+            foreach (var familyId in families)
+            {
+                await Groups.AddToGroupAsync(connectionId, familyId);
+            }
         }
 
         await base.OnConnectedAsync();
@@ -30,41 +50,33 @@ public class NotificationHub : Hub
 
     public override async Task OnDisconnectedAsync(Exception exception)
     {
-        var userId = Context.UserIdentifier;
-        if (!string.IsNullOrEmpty(userId))
+        var userId = GetUserId();
+        if (!string.IsNullOrEmpty(userId) && ConnectedUsers.TryRemove(userId, out var user))
         {
-            UserFamilies.TryRemove(userId, out _);
+            // Remove user from SignalR groups
+            foreach (var familyId in user.Families)
+            {
+                await Groups.RemoveFromGroupAsync(user.ConnectionId, familyId);
+            }
         }
 
         await base.OnDisconnectedAsync(exception);
     }
 
-    public async Task SendNotificationToFamilies(List<string> targetFamilyIds)
+    public static List<ConnectedUser> GetConnectedUsers()
     {
-        var usersToNotify = new Dictionary<string, HashSet<string>>();
-
-        foreach (var (userId, familyIds) in UserFamilies)
-        {
-            var matchedFamilies = familyIds.Intersect(targetFamilyIds).ToList();
-            if (matchedFamilies.Any())
-            {
-                if (!usersToNotify.ContainsKey(userId))
-                    usersToNotify[userId] = new HashSet<string>();
-
-                usersToNotify[userId].UnionWith(matchedFamilies);
-            }
-        }
-
-        // Send a single notification per user
-        foreach (var (userId, families) in usersToNotify)
-        {
-            await Clients.User(userId).SendAsync("ReceiveNotification", families.ToList());
-        }
+        return ConnectedUsers.Values.ToList();
     }
 
-    private Task<List<string>> GetUserFamiliesAsync(string userId)
+    private string GetUserId()
+    {
+        return Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+    }
+
+    private async Task<List<string>> GetUserFamiliesAsync(string userId)
     {
         // Replace with actual database lookup
-        return Task.FromResult(new List<string> { "Family1", "Family2" });
+        await Task.Delay(100);
+        return new List<string> { "Family1", "Family2" }; // Example families
     }
 }
