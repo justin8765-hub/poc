@@ -1,29 +1,70 @@
-@page "/edit-save-toggle"
+using Microsoft.AspNetCore.SignalR;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
-<div class="d-flex align-items-center">
-    <button class="btn btn-primary d-flex align-items-center" @onclick="ToggleEditSave">
-        <i class="bi @(isEditMode ? "bi-save" : "bi-pencil") me-2"></i>
-        @(isEditMode ? "Save" : "Edit")
-    </button>
-</div>
+public class NotificationHub : Hub
+{
+    // Tracks which families each user belongs to
+    private static readonly ConcurrentDictionary<string, HashSet<string>> UserFamilies = new();
 
-@code {
-    private bool isEditMode = false;
-
-    private void ToggleEditSave()
+    public override async Task OnConnectedAsync()
     {
-        if (isEditMode)
+        var userId = Context.UserIdentifier;
+        if (string.IsNullOrEmpty(userId)) return;
+
+        var familyIds = await GetUserFamiliesAsync(userId);
+
+        // Store user-family mapping in memory
+        UserFamilies[userId] = new HashSet<string>(familyIds);
+
+        // Add the user to SignalR groups for each family
+        foreach (var familyId in familyIds)
         {
-            // Call your save logic
-            SaveChanges();
+            await Groups.AddToGroupAsync(Context.ConnectionId, familyId);
         }
 
-        isEditMode = !isEditMode; // Toggle between edit and save modes
+        await base.OnConnectedAsync();
     }
 
-    private void SaveChanges()
+    public override async Task OnDisconnectedAsync(Exception exception)
     {
-        // Add your save logic here
-        Console.WriteLine("Changes saved!");
+        var userId = Context.UserIdentifier;
+        if (!string.IsNullOrEmpty(userId))
+        {
+            UserFamilies.TryRemove(userId, out _);
+        }
+
+        await base.OnDisconnectedAsync(exception);
+    }
+
+    public async Task SendNotificationToFamilies(List<string> targetFamilyIds)
+    {
+        var usersToNotify = new Dictionary<string, HashSet<string>>();
+
+        foreach (var (userId, familyIds) in UserFamilies)
+        {
+            var matchedFamilies = familyIds.Intersect(targetFamilyIds).ToList();
+            if (matchedFamilies.Any())
+            {
+                if (!usersToNotify.ContainsKey(userId))
+                    usersToNotify[userId] = new HashSet<string>();
+
+                usersToNotify[userId].UnionWith(matchedFamilies);
+            }
+        }
+
+        // Send a single notification per user
+        foreach (var (userId, families) in usersToNotify)
+        {
+            await Clients.User(userId).SendAsync("ReceiveNotification", families.ToList());
+        }
+    }
+
+    private Task<List<string>> GetUserFamiliesAsync(string userId)
+    {
+        // Replace with actual database lookup
+        return Task.FromResult(new List<string> { "Family1", "Family2" });
     }
 }
