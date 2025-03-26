@@ -1,3 +1,4 @@
+<FormButtons>
     <div class="d-flex justify-content-end align-items-center gap-3">
         @if (ShowSavedInfo)
         {
