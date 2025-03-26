@@ -1,16 +1,16 @@
-public class BulkObservableCollection<T> : ObservableCollection<T>
-{
-    public void AddRange(IEnumerable<T> items)
-    {
-        if (items == null) throw new ArgumentNullException(nameof(items));
-
-        foreach (var item in items)
+    <div class="d-flex justify-content-end align-items-center gap-3">
+        @if (ShowSavedInfo)
         {
-            Items.Add(item); // Directly modifying the underlying collection
+            <div class="d-flex align-items-center" style="height: 40px;">
+                <SfMessage Severity="MessageSeverity.Success">Task Saved!</SfMessage>
+            </div>
         }
-        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
-    }
-}
 
-var myCollection = new BulkObservableCollection<MyItem>();
-myCollection.AddRange(Enumerable.Range(1, 10000).Select(i => new MyItem { Name = $"Item {i}" }));
+        <div style="height: 40px;">
+            <SfProgressButton Content="Save"
+                              IsPrimary="true"
+                              Duration="4000"
+                              OnClick="SaveProgressButton" />
+        </div>
+    </div>
+</FormButtons>
