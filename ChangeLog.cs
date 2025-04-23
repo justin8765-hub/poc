@@ -1,17 +1,35 @@
-<FormButtons>
-    <div class="d-flex justify-content-end align-items-center gap-3">
-        @if (ShowSavedInfo)
-        {
-            <div class="d-flex align-items-center" style="height: 40px;">
-                <SfMessage Severity="MessageSeverity.Success">Task Saved!</SfMessage>
-            </div>
-        }
+<SfMaskedTextBox @bind-Value="DurationString"
+                 Mask="##:##"
+                 FloatLabelType="Auto"
+                 Placeholder="Work Duration (hh:mm)"
+                 PromptChar="_">
+</SfMaskedTextBox>
 
-        <div style="height: 40px;">
-            <SfProgressButton Content="Save"
-                              IsPrimary="true"
-                              Duration="4000"
-                              OnClick="SaveProgressButton" />
-        </div>
-    </div>
-</FormButtons>
+
+@code {
+    private MyModel model = new();
+
+    private string DurationString
+    {
+        get => model.Duration.HasValue
+            ? model.Duration.Value.ToString(@"hh\:mm")
+            : string.Empty;
+
+        set
+        {
+            if (string.IsNullOrWhiteSpace(value) || value.Contains("_"))
+            {
+                model.Duration = null;
+            }
+            else if (TimeSpan.TryParse(value, out var parsed))
+            {
+                model.Duration = parsed;
+            }
+        }
+    }
+
+    public class MyModel
+    {
+        public TimeSpan? Duration { get; set; }
+    }
+}
